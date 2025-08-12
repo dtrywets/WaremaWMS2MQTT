@@ -1,47 +1,16 @@
 # WaremaWMS2MQTT
 
-**WaremaWMS2MQTT** ist ein schlanker, **standalone** Docker-Container, der einen **Warema WMS USB‑Stick** anbindet und Zustände/Kommandos über **MQTT** bereitstellt. Jede MQTT‑fähige Hausautomation (z. B. Home Assistant) kann diese Topics konsumieren. **Kein Home‑Assistant‑Addon**, keine Supervisor‑Abhängigkeiten.
+Docker‑Bridge: **Warema WMS USB‑Stick → MQTT**. Kein HA‑Addon, nur MQTT.
 
----
+## Quick Facts
 
-## Features
-
-* **Standalone**: Alpine + Node.js als Docker‑Image
-* **Serielle WMS‑Anbindung** (USB‑Stick)
-* **MQTT‑Brücke** für Cover (Markisen/Rollos) inkl. Setzen/Abfragen von Position & Neigung
-* Optional: **Wetter‑Broadcasts** (Licht, Temperatur, Wind, Regen)
-* **Discovery‑Modus** (`WMS_PAN_ID=FFFF`) um **Kanal/PAN‑ID/Key** des WMS‑Netzes zu ermitteln
-* **FORCE\_DEVICES** / **IGNORED\_DEVICES** für gezielte Gerätesteuerung
-* Robuste Fehlerbehandlung (keine Crashes bei fehlenden Winkeln/Unbekannt‑Zuständen)
-
----
-
-## Voraussetzungen
-
-* Linux (getestet mit **Debian 12**), Docker/Podman
-* **Warema WMS USB‑Stick** (am Host als `/dev/ttyUSB*` o. ä.)
-* MQTT‑Broker (z. B. Mosquitto)
-
----
-
-## Projektstruktur
-
-```
-warema-bridge/
-  Dockerfile.standalone
-  rootfs/
-    srv/
-      bridge.js
-      package.json
-```
-
-> Hinweis: Es gibt **keine** Home‑Assistant‑Addon‑Dateien – das Projekt läuft als normaler Container.
-
----
+* Docker (Alpine + Node.js)
+* Serielle Anbindung an WMS‑Stick
+* MQTT Topics für Cover (Position/Tilt) + optional Wetter‑Broadcasts
+* Discovery via `WMS_PAN_ID=FFFF`
+* Steuerung über `FORCE_DEVICES` / `IGNORED_DEVICES`
 
 ## Build
-
-Im Repository‑Root:
 
 ```bash
 docker build -t wms-bridge-standalone \
@@ -49,11 +18,7 @@ docker build -t wms-bridge-standalone \
   warema-bridge
 ```
 
----
-
-## Discovery (WMS‑Netzparameter ermitteln)
-
-Falls Kanal/PAN‑ID/Key unbekannt sind:
+## Discovery (Netzparameter ermitteln)
 
 ```bash
 docker run -d --name wms-bridge-discovery --restart unless-stopped \
@@ -67,20 +32,11 @@ docker run -d --name wms-bridge-discovery --restart unless-stopped \
   -e MQTT_PASSWORD="PASS" \
   wms-bridge-standalone
 
-docker logs -f wms-bridge-discovery
-```
-
-* Folge dem im Log beschriebenen Ablauf (kurz in den Anlern/Broadcast gehen).
-* Notiere dir **Kanal**, **PAN‑ID** und **Key** des richtigen WMS‑Netzes.
-* Discovery stoppen:
-
-```bash
+# Logs beobachten, Kanal/PAN/Key notieren, dann stoppen:
 docker rm -f wms-bridge-discovery
 ```
 
----
-
-## Produktion (normaler Betrieb)
+## Run (Produktion)
 
 ```bash
 docker run -d --name wms-bridge --restart unless-stopped \
@@ -89,7 +45,7 @@ docker run -d --name wms-bridge --restart unless-stopped \
   -e WMS_SERIAL_PORT="/dev/ttyUSB0" \
   -e WMS_CHANNEL="17" \
   -e WMS_PAN_ID="2221" \
-  -e WMS_KEY="YOUR_128BIT_HEX_KEY" \
+  -e WMS_KEY="<128bit_hex>" \
   -e MQTT_SERVER="mqtt://MQTT_HOST:1883" \
   -e MQTT_USER="USER" \
   -e MQTT_PASSWORD="PASS" \
@@ -100,98 +56,46 @@ docker run -d --name wms-bridge --restart unless-stopped \
   wms-bridge-standalone
 ```
 
-**Tipps**
+## Env
 
-* Stabiler Gerätepfad: `-v /dev/serial/by-id:/dev/serial/by-id:ro` mounten und `WMS_SERIAL_PORT` auf den **by‑id**‑Pfad setzen.
-* `FORCE_DEVICES`: erzwingt Geräteanlage (Format `SNR[:TYPE]`, Default `TYPE=25` für Funkmotor/Cover).
-* `IGNORED_DEVICES`: z. B. **Windsensoren** (antworten nicht auf Positionsabfragen).
+| Var                           | Desc                        | Example                    |
+| ----------------------------- | --------------------------- | -------------------------- |
+| `WMS_SERIAL_PORT`             | USB‑Stick                   | `/dev/ttyUSB0` / by‑id     |
+| `WMS_CHANNEL`                 | Funkkanal                   | `17`                       |
+| `WMS_PAN_ID`                  | PAN‑ID (`FFFF` = Discovery) | `2221`                     |
+| `WMS_KEY`                     | Netzschlüssel (32 hex)      | `6DD46B…C957`              |
+| `MQTT_SERVER`                 | Broker URL                  | `mqtt://192.168.1.10:1883` |
+| `MQTT_USER` / `MQTT_PASSWORD` | Broker Auth                 |                            |
+| `FORCE_DEVICES`               | `SNR[:TYPE]` (default `25`) | `00969444:25`              |
+| `IGNORED_DEVICES`             | CSV SNRs                    | `01163235,01232902`        |
+| `POLLING_INTERVAL`            | ms                          | `30000`                    |
+| `MOVING_INTERVAL`             | ms                          | `1000`                     |
 
----
+## Topics
 
-## Umgebungsvariablen
+**Cover**
 
-| Variable           | Bedeutung                                                  | Beispiel                    |
-| ------------------ | ---------------------------------------------------------- | --------------------------- |
-| `WMS_SERIAL_PORT`  | Serieller Port des Sticks                                  | `/dev/ttyUSB0` / by‑id‑Pfad |
-| `WMS_CHANNEL`      | WMS Funkkanal                                              | `17`                        |
-| `WMS_PAN_ID`       | PAN‑ID des Netzes. **`FFFF`** aktiviert **Discovery**      | `2221` / `FFFF`             |
-| `WMS_KEY`          | 128‑bit Netzschlüssel (Hex, 32 Zeichen)                    | `6DD46B…C957`               |
-| `MQTT_SERVER`      | MQTT‑Broker URL                                            | `mqtt://192.168.1.10:1883`  |
-| `MQTT_USER`        | MQTT Benutzer                                              | `user`                      |
-| `MQTT_PASSWORD`    | MQTT Passwort                                              | `pass`                      |
-| `FORCE_DEVICES`    | Kommagetrennte Liste: `SNR[:TYPE]` (Default `25`)          | `00969444:25`               |
-| `IGNORED_DEVICES`  | Kommagetrennte Liste von SNRs, die ignoriert werden sollen | `01163235,01232902`         |
-| `POLLING_INTERVAL` | Abfrageintervall Position (ms)                             | `30000`                     |
-| `MOVING_INTERVAL`  | Intervall zur Bewegungserkennung (ms)                      | `1000`                      |
+* `warema/<SNR>/availability` → `online|offline`
+* `warema/<SNR>/position` → `0..100`
+* `warema/<SNR>/tilt` → `-100..100`
+* `warema/<SNR>/set` → `OPEN|CLOSE|STOP`
+* `warema/<SNR>/set_position` → `0..100`
+* `warema/<SNR>/set_tilt` → `-100..100`
 
-> **SNR‑Format**: Dezimal, führende Nullen sind ok (werden intern als Zahl verwendet).
+**Wetter** (falls vorhanden)
 
----
+* `warema/<SNR>/illuminance/state`, `.../temperature/state`, `.../wind/state`, `.../rain/state`
 
-## MQTT‑Topics
-
-**Cover (Markise/Rollo):**
-
-* Status
-
-  * `warema/<SNR>/availability` → `online|offline`
-  * `warema/<SNR>/position` → `0..100`
-  * `warema/<SNR>/tilt` → `-100..100` (falls unterstützt)
-* Kommandos
-
-  * `warema/<SNR>/set` → `OPEN|CLOSE|STOP`
-  * `warema/<SNR>/set_position` → `0..100`
-  * `warema/<SNR>/set_tilt` → `-100..100`
-
-**Wetter (Broadcast, falls Geräte vorhanden):**
-
-* `warema/<SNR>/illuminance/state` (lx)
-* `warema/<SNR>/temperature/state` (°C)
-* `warema/<SNR>/wind/state` (m/s)
-* `warema/<SNR>/rain/state` (0/1)
-
-**Bridge‑Availability:**
+**Bridge**
 
 * `warema/bridge/state` → `online|offline`
 
----
+## Notes
 
-## Troubleshooting
+* Stick muss im WMS‑Netz eingebucht sein (sonst Timeouts).
+* Windsensoren nicht pollen → in `IGNORED_DEVICES` packen.
+* Stabiler Gerätepafd: `/dev/serial/by-id` mounten und verwenden.
 
-**Keine Antworten / Timeouts**
+## License
 
-* Stelle sicher, dass **Kanal/PAN‑ID/Key exakt** zum WMS‑Netz passen → ggf. **Discovery** fahren.
-* USB‑Stick muss **ins WMS‑Netz eingebucht** sein (einmaliges Pairing/Join).
-* Antenne/USB‑Verlängerung nutzen, etwas Abstand zu Störquellen.
-
-**Falsche/unnötige Geräte**
-
-* **Windsensoren** in `IGNORED_DEVICES` aufnehmen (sie antworten nicht auf Positionsabfragen).
-* Markise (oder gewünschte Aktoren) via `FORCE_DEVICES="SNR[:TYPE]"` explizit setzen.
-
-**Serielle Rechte**
-
-* Notfalls mit `--privileged` testen. Besser: passendes `/dev/ttyUSB*` als `--device` mappen und by‑id mounten.
-
-**Home Assistant zeigt „unbekannt“**
-
-* HA braucht **erste State‑Payloads** (Position etc.). Sobald der Stick Antworten liefert, verschwinden „unknown“‑Zustände.
-
----
-
-## Sicherheit / Versionierung
-
-* **Keine Secrets committen**: `.env`/Run‑Skripte außerhalb der Versionskontrolle halten.
-* Image lokal bauen oder eigene Registry verwenden.
-
----
-
-## Lizenz
-
-MIT (sofern nicht anders angegeben).
-
----
-
-## Disclaimer
-
-Dies ist ein Community‑Projekt ohne Gewähr. Nutzung auf eigene Verantwortung. WMS ist ein Markenzeichen der jeweiligen Rechteinhaber.
+MIT
