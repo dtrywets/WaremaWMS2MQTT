@@ -12,7 +12,13 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 COPY rootfs/srv/package.json /srv
 WORKDIR /srv
 RUN npm install
+RUN node -e "const fs=require('fs'); const f='/srv/node_modules/warema-wms-api/lib/wms-vb-stick.js'; let s=fs.readFileSync(f,'utf8'); s=s.replace(/stickObj\\.vnBlindGet\\(stickObj\\.currentWmsMsg\\.snr\\)\\.name/g,'((stickObj.vnBlindGet(stickObj.currentWmsMsg.snr)||{}).name||String(stickObj.currentWmsMsg.snr))'); fs.writeFileSync(f,s); console.log('patched',f);"
+# Guard gegen undefined .name im Timeout-Logger
+RUN node -e "const fs=require('fs');const f='/srv/node_modules/warema-wms-api/lib/wms-vb-stick.js';let s=fs.readFileSync(f,'utf8');s=s.replace(/stickObj\\.vnBlindGet\\(stickObj\\.currentWmsMsg\\.snr\\)\\.name/g,\"((stickObj.vnBlindGet(stickObj.currentWmsMsg.snr)||{}).name||String(stickObj.currentWmsMsg.snr))\");fs.writeFileSync(f,s);console.log('patched name guard');"
 
+# Timeout für scanResponse erhöhen (~8s)
+RUN node -e "const fs=require('fs');const f='/srv/node_modules/warema-wms-api/lib/wms-vb-stick.js';let s=fs.readFileSync(f,'utf8');s=s.replace(/wmsTimeout 2000 scanResponse/g,'wmsTimeout 8000 scanResponse');s=s.replace(/(scanResponse[^\\n]*?)(2000)/g,'$1'+'8000');fs.writeFileSync(f,s);console.log('patched scanResponse timeout');"
+Neu
 # Aufräumen
 RUN apk del --no-cache linux-headers g++ make && rm -rf /root/.npm /root/.cache
 
